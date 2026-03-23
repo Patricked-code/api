@@ -1,0 +1,20 @@
+version: '3.9'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: opcvm-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: opcvm_analytics
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: analytics_local_password
+    ports:
+      - '8123:8123'
+      - '9000:9000'
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./database/clickhouse:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  clickhouse_data:
