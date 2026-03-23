@@ -1,0 +1,49 @@
+version: '3.9'
+
+services:
+  db:
+    image: mariadb:10.6
+    container_name: opcvm-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: fund_opcvm
+      MYSQL_USER: opcvm
+      MYSQL_PASSWORD: opcvm_local_password
+      MYSQL_ROOT_PASSWORD: root_local_password
+    ports:
+      - '3306:3306'
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/dumps:/docker-entrypoint-initdb.d:ro
+
+  api:
+    image: node:20
+    container_name: opcvm-api
+    working_dir: /app
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      NODE_ENV: development
+      PORT: 3005
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: fund_opcvm
+      DB_USER: opcvm
+      DB_PASSWORD: opcvm_local_password
+      DB_DIALECT: mysql
+      DB_TIMEZONE: +00:00
+      DB_POOL_MAX: 20
+      DB_POOL_MIN: 5
+      API_BASE_URL: http://localhost:3005
+      SITE_BASE_URL: http://localhost:3000
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - '3005:3005'
+    volumes:
+      - ./:/app
+    command: sh -c "npm install && npm run dev"
+
+volumes:
+  db_data:
