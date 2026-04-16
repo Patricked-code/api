@@ -5,6 +5,10 @@ function registerStableRoutes(app) {
 
   app.use(require('../routes/routes_auth_modern'));
   app.use(require('../routes/routes_legacy_deprecations'));
+  app.use(require('../routes/routes_roboadvisor'));
+  app.use(require('../routes/routes_roboadvisor_catalog'));
+  app.use(require('../routes/routes_roboadvisor_allocation'));
+  app.use(require('../routes/routes_roboadvisor_recommendation'));
 
   if (typeof require('../routes/routes_analytics') === 'function') {
     require('../routes/routes_analytics')(app);
