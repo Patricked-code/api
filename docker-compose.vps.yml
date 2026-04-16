@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: plateforme_opcvm_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: opcvm_db
+      MYSQL_USER: opcvm_user
+      MYSQL_PASSWORD: opcvm_password
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: plateforme_opcvm_clickhouse
+    restart: unless-stopped
+    ports:
+      - '8123:8123'
+      - '9000:9000'
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+
+volumes:
+  mysql_data:
+  clickhouse_data:
