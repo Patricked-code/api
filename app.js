@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const sequelize = require('./src/db/sequelize');
 const swaggerUI = require('swagger-ui-express');
 const swaggerJsDoc = require('swagger-jsdoc');
+const { registerStableRoutes } = require('./src/bootstrap/registerStableRoutes');
 
 // Initialize database
 sequelize.initDb();
@@ -16,8 +17,6 @@ const port = process.env.PORT || 3005;
 // ---------------------
 // Middleware
 // ---------------------
-
-// Security headers
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -31,7 +30,6 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 
-// CORS - restrict to known origins
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:3000',
   process.env.SITE_BASE_URL || 'http://localhost:3000',
@@ -39,7 +37,6 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
@@ -50,21 +47,14 @@ app.use(cors({
   allowedHeaders: ['Origin', 'Authorization', 'X-Requested-With', 'Content-Type', 'Accept', 'x-api-key'],
 }));
 
-// Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Input sanitization
 const { sanitizeStrings, rateLimit } = require('./src/middleware/validate');
 app.use(sanitizeStrings);
-
-// Trust proxy (for rate limiting behind reverse proxy)
 app.set('trust proxy', 1);
-
-// Rate limiting global - 200 requêtes par 15 minutes par IP
 app.use(rateLimit(200, 15 * 60 * 1000));
 
-// Logging
 if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 } else {
@@ -80,8 +70,8 @@ const swaggerOptions = {
     openapi: '3.0.0',
     info: {
       title: 'API OPCVM - Documentation',
-      version: '1.0.0',
-      description: 'API pour la gestion et l\'analyse de fonds OPCVM',
+      version: '1.1.0',
+      description: 'API pour la gestion et l analyse de fonds OPCVM avec routes stables prioritaires',
     },
     servers: [
       {
@@ -98,11 +88,15 @@ app.use('/api-docs', swaggerUI.serve, swaggerUI.setup(specs));
 // ---------------------
 // Routes
 // ---------------------
-require('./src/routes/routes_vl')(app);
+registerStableRoutes(app);
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    mode: 'stable-bootstrap-active',
+  });
 });
 
 // 404 handler
