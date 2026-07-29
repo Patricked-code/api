@@ -1,0 +1,200 @@
+create index if not exists idx_subfunds_fund on af_fund.subfunds(fund_id);
+
+create table if not exists af_fund.share_classes (
+  id uuid primary key default gen_random_uuid(),
+  fund_id uuid not null references af_fund.funds(id) on delete cascade,
+  subfund_id uuid references af_fund.subfunds(id) on delete cascade,
+  official_name text not null,
+  display_name text not null,
+  isin text,
+  local_code text,
+  currency_id uuid not null references af_ref.currencies(id),
+  income_policy text check (income_policy in ('ACCUMULATION','DISTRIBUTION','MIXED','UNKNOWN')),
+  investor_type text,
+  hedged_currency_id uuid references af_ref.currencies(id),
+  launch_date date,
+  close_date date,
+  status text not null default 'ACTIVE',
+  minimum_subscription numeric(28,8),
+  nav_frequency text,
+  external_identifiers jsonb not null default '{}'::jsonb,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (close_date is null or launch_date is null or close_date >= launch_date)
+);
+create unique index if not exists uq_share_classes_isin on af_fund.share_classes(isin) where isin is not null;
+create index if not exists idx_share_classes_fund on af_fund.share_classes(fund_id, subfund_id);
+
+create table if not exists af_fund.fund_organization_roles (
+  id uuid primary key default gen_random_uuid(),
+  fund_id uuid not null references af_fund.funds(id) on delete cascade,
+  subfund_id uuid references af_fund.subfunds(id) on delete cascade,
+  share_class_id uuid references af_fund.share_classes(id) on delete cascade,
+  organization_id uuid not null references af_org.organizations(id),
+  role_code text not null,
+  role_scope text not null default 'FUND' check (role_scope in ('FUND','SUB_FUND','SHARE_CLASS','COUNTRY','DISTRIBUTION_CHANNEL','INVESTMENT_SLEEVE')),
+  geography_id uuid references af_ref.geographies(id),
+  start_date date,
+  end_date date,
+  is_current boolean not null default true,
+  delegation_type text,
+  source_document_id uuid,
+  verification_status text not null default 'UNVERIFIED',
+  notes text,
+  created_at timestamptz not null default now(),
+  check (end_date is null or start_date is null or end_date >= start_date)
+);
+create index if not exists idx_fund_org_roles_fund on af_fund.fund_organization_roles(fund_id, role_code, is_current);
+create index if not exists idx_fund_org_roles_org on af_fund.fund_organization_roles(organization_id, role_code);
+
+create table if not exists af_fund.local_classifications (
+  id uuid primary key default gen_random_uuid(),
+  geography_id uuid not null references af_ref.geographies(id),
+  regulator_id uuid references af_org.organizations(id),
+  code text not null,
+  name text not null,
+  description text,
+  valid_from date,
+  valid_to date,
+  source_document_id uuid,
+  created_at timestamptz not null default now(),
+  unique(geography_id, code, valid_from)
+);
+
+create table if not exists af_fund.classification_mappings (
+  id uuid primary key default gen_random_uuid(),
+  local_classification_id uuid not null references af_fund.local_classifications(id),
+  category_id uuid not null references af_ref.category_nodes(id),
+  mapping_rule jsonb not null default '{}'::jsonb,
+  confidence numeric(5,4),
+  valid_from date,
+  valid_to date,
+  methodology_version_id uuid,
+  created_at timestamptz not null default now(),
+  unique(local_classification_id, category_id, valid_from)
+);
+
+create table if not exists af_fund.fund_category_memberships (
+  id uuid primary key default gen_random_uuid(),
+  fund_id uuid not null references af_fund.funds(id) on delete cascade,
+  subfund_id uuid references af_fund.subfunds(id) on delete cascade,
+  share_class_id uuid references af_fund.share_classes(id) on delete cascade,
+  category_id uuid not null references af_ref.category_nodes(id),
+  membership_scope text not null default 'FUND' check (membership_scope in ('FUND','SUB_FUND','SHARE_CLASS')),
+  valid_from date not null,
+  valid_to date,
+  is_primary boolean not null default true,
+  source_document_id uuid,
+  verification_status text not null default 'UNVERIFIED',
+  created_at timestamptz not null default now(),
+  check (valid_to is null or valid_to >= valid_from)
+);
+create index if not exists idx_fund_category_memberships_category on af_fund.fund_category_memberships(category_id, valid_from, valid_to);
+create index if not exists idx_fund_category_memberships_fund on af_fund.fund_category_memberships(fund_id, share_class_id);
+
+create table if not exists af_fund.nav_observations (
+  id uuid primary key default gen_random_uuid(),
+  share_class_id uuid not null references af_fund.share_classes(id) on delete cascade,
+  valuation_date date not null,
+  nav_value numeric(28,10),
+  unit_price numeric(28,10),
+  bid_price numeric(28,10),
+  offer_price numeric(28,10),
+  currency_id uuid not null references af_ref.currencies(id),
+  is_adjusted boolean not null default false,
+  adjustment_factor numeric(28,12),
+  publication_date date,
+  observed_at timestamptz,
+  ingested_at timestamptz not null default now(),
+  source_observation_id uuid,
+  quality_status text not null default 'PENDING',
+  revision_number integer not null default 1,
+  is_current boolean not null default true,
+  raw_value jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  unique(share_class_id, valuation_date, revision_number)
+);
+create unique index if not exists uq_nav_current on af_fund.nav_observations(share_class_id, valuation_date) where is_current;
+create index if not exists idx_nav_observations_date on af_fund.nav_observations(valuation_date);
+
+create table if not exists af_fund.aum_observations (
+  id uuid primary key default gen_random_uuid(),
+  fund_id uuid not null references af_fund.funds(id) on delete cascade,
+  subfund_id uuid references af_fund.subfunds(id) on delete cascade,
+  share_class_id uuid references af_fund.share_classes(id) on delete cascade,
+  valuation_date date not null,
+  aum_value numeric(32,8) not null,
+  currency_id uuid not null references af_ref.currencies(id),
+  units_outstanding numeric(32,8),
+  publication_date date,
+  source_observation_id uuid,
+  quality_status text not null default 'PENDING',
+  revision_number integer not null default 1,
+  is_current boolean not null default true,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists uq_aum_current_grain on af_fund.aum_observations(
+  fund_id, coalesce(subfund_id,'00000000-0000-0000-0000-000000000000'::uuid),
+  coalesce(share_class_id,'00000000-0000-0000-0000-000000000000'::uuid),
+  valuation_date
+) where is_current;
+create index if not exists idx_aum_observations_date on af_fund.aum_observations(valuation_date);
+
+create table if not exists af_fund.distributions (
+  id uuid primary key default gen_random_uuid(),
+  share_class_id uuid not null references af_fund.share_classes(id) on delete cascade,
+  distribution_type text not null,
+  ex_date date,
+  record_date date,
+  payment_date date,
+  gross_amount numeric(28,10),
+  net_amount numeric(28,10),
+  currency_id uuid references af_ref.currencies(id),
+  adjustment_factor numeric(28,12),
+  source_document_id uuid,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists af_fund.fund_events (
+  id uuid primary key default gen_random_uuid(),
+  fund_id uuid not null references af_fund.funds(id) on delete cascade,
+  subfund_id uuid references af_fund.subfunds(id) on delete cascade,
+  share_class_id uuid references af_fund.share_classes(id) on delete cascade,
+  event_type text not null,
+  effective_date date not null,
+  announcement_date date,
+  old_value jsonb,
+  new_value jsonb,
+  source_document_id uuid,
+  notes text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_fund_events_fund_date on af_fund.fund_events(fund_id, effective_date);
+
+create table if not exists af_fund.holdings (
+  id uuid primary key default gen_random_uuid(),
+  fund_id uuid not null references af_fund.funds(id) on delete cascade,
+  subfund_id uuid references af_fund.subfunds(id) on delete cascade,
+  portfolio_date date not null,
+  instrument_id uuid,
+  instrument_name text,
+  isin text,
+  asset_type text,
+  issuer_name text,
+  geography_id uuid references af_ref.geographies(id),
+  currency_id uuid references af_ref.currencies(id),
+  quantity numeric(32,10),
+  market_value numeric(32,8),
+  weight numeric(18,12),
+  source_document_id uuid,
+  quality_status text not null default 'PENDING',
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_holdings_fund_date on af_fund.holdings(fund_id, portfolio_date);
+
+create table if not exists af_source.source_endpoints (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references af_org.organizations(id),
+  geography_id uuid references af_ref.geographies(id),
+  source_code text not null unique,
