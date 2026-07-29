@@ -1,0 +1,200 @@
+
+begin;
+
+create extension if not exists pgcrypto with schema extensions;
+
+create schema if not exists af_ref;
+create schema if not exists af_org;
+create schema if not exists af_fund;
+create schema if not exists af_market;
+create schema if not exists af_method;
+create schema if not exists af_source;
+create schema if not exists af_ops;
+create schema if not exists af_calc;
+create schema if not exists af_quality;
+create schema if not exists af_publish;
+
+create or replace function af_ops.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+create table if not exists af_ref.currencies (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique check (char_length(code) = 3),
+  name text not null,
+  symbol text,
+  minor_unit smallint not null default 2,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists af_ref.geographies (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  geography_type text not null check (geography_type in ('CONTINENT','REGION','COUNTRY','MONETARY_ZONE','MARKET')),
+  parent_id uuid references af_ref.geographies(id),
+  iso2 text,
+  iso3 text,
+  default_currency_id uuid references af_ref.currencies(id),
+  is_active boolean not null default true,
+  valid_from date,
+  valid_to date,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (valid_to is null or valid_from is null or valid_to >= valid_from)
+);
+create index if not exists idx_geographies_parent on af_ref.geographies(parent_id);
+create index if not exists idx_geographies_type on af_ref.geographies(geography_type);
+
+create table if not exists af_ref.geography_memberships (
+  id uuid primary key default gen_random_uuid(),
+  child_geography_id uuid not null references af_ref.geographies(id) on delete cascade,
+  parent_geography_id uuid not null references af_ref.geographies(id) on delete cascade,
+  membership_type text not null default 'GEOGRAPHIC',
+  valid_from date,
+  valid_to date,
+  created_at timestamptz not null default now(),
+  unique(child_geography_id, parent_geography_id, membership_type, valid_from),
+  check (child_geography_id <> parent_geography_id),
+  check (valid_to is null or valid_from is null or valid_to >= valid_from)
+);
+create index if not exists idx_geography_memberships_child on af_ref.geography_memberships(child_geography_id);
+create index if not exists idx_geography_memberships_parent on af_ref.geography_memberships(parent_geography_id);
+
+create table if not exists af_ref.asset_classes (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  parent_id uuid references af_ref.asset_classes(id),
+  is_active boolean not null default true,
+  sort_order integer not null default 0,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists af_ref.category_nodes (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  level smallint not null check (level between 1 and 9),
+  asset_class_id uuid not null references af_ref.asset_classes(id),
+  geography_id uuid references af_ref.geographies(id),
+  currency_id uuid references af_ref.currencies(id),
+  currency_context text not null default 'LOCAL' check (currency_context in ('LOCAL','EUR','USD')),
+  parent_category_id uuid references af_ref.category_nodes(id),
+  is_active boolean not null default true,
+  valid_from date,
+  valid_to date,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (valid_to is null or valid_from is null or valid_to >= valid_from)
+);
+create index if not exists idx_category_nodes_parent on af_ref.category_nodes(parent_category_id);
+create index if not exists idx_category_nodes_asset_geo on af_ref.category_nodes(asset_class_id, geography_id);
+
+create table if not exists af_ref.market_calendars (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  geography_id uuid not null references af_ref.geographies(id),
+  timezone text not null,
+  weekend_days smallint[] not null default array[6,7]::smallint[],
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists af_ref.market_calendar_days (
+  calendar_id uuid not null references af_ref.market_calendars(id) on delete cascade,
+  calendar_date date not null,
+  is_business_day boolean not null,
+  holiday_name text,
+  source_document_id uuid,
+  created_at timestamptz not null default now(),
+  primary key(calendar_id, calendar_date)
+);
+
+create table if not exists af_org.organizations (
+  id uuid primary key default gen_random_uuid(),
+  organization_type text not null,
+  legal_name text not null,
+  display_name text not null,
+  country_id uuid references af_ref.geographies(id),
+  legal_identifier text,
+  regulatory_identifier text,
+  website_url text,
+  status text not null default 'ACTIVE' check (status in ('ACTIVE','INACTIVE','SUSPENDED','CLOSED','UNKNOWN')),
+  valid_from date,
+  valid_to date,
+  historical_names jsonb not null default '[]'::jsonb,
+  contacts jsonb not null default '{}'::jsonb,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (valid_to is null or valid_from is null or valid_to >= valid_from)
+);
+create index if not exists idx_organizations_type_country on af_org.organizations(organization_type, country_id);
+create unique index if not exists uq_organizations_legal_country on af_org.organizations(lower(legal_name), coalesce(country_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+create table if not exists af_org.organization_geography_roles (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references af_org.organizations(id) on delete cascade,
+  geography_id uuid not null references af_ref.geographies(id) on delete cascade,
+  role_code text not null,
+  valid_from date,
+  valid_to date,
+  is_primary boolean not null default false,
+  source_document_id uuid,
+  created_at timestamptz not null default now(),
+  unique(organization_id, geography_id, role_code, valid_from),
+  check (valid_to is null or valid_from is null or valid_to >= valid_from)
+);
+create index if not exists idx_org_geo_role_geo on af_org.organization_geography_roles(geography_id, role_code);
+
+create table if not exists af_fund.funds (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid unique references af_org.organizations(id),
+  official_name text not null,
+  display_name text not null,
+  legal_form text,
+  domicile_geography_id uuid not null references af_ref.geographies(id),
+  base_currency_id uuid not null references af_ref.currencies(id),
+  launch_date date,
+  liquidation_date date,
+  status text not null default 'ACTIVE' check (status in ('ACTIVE','INACTIVE','SUSPENDED','MERGED','LIQUIDATED','UNKNOWN')),
+  umbrella_fund_id uuid references af_fund.funds(id),
+  external_identifiers jsonb not null default '{}'::jsonb,
+  metadata jsonb not null default '{}'::jsonb,
+  valid_from date,
+  valid_to date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (liquidation_date is null or launch_date is null or liquidation_date >= launch_date),
+  check (valid_to is null or valid_from is null or valid_to >= valid_from)
+);
+create index if not exists idx_funds_domicile_status on af_fund.funds(domicile_geography_id, status);
+
+create table if not exists af_fund.subfunds (
+  id uuid primary key default gen_random_uuid(),
+  fund_id uuid not null references af_fund.funds(id) on delete cascade,
+  official_name text not null,
+  display_name text not null,
+  base_currency_id uuid references af_ref.currencies(id),
+  launch_date date,
+  liquidation_date date,
+  status text not null default 'ACTIVE',
+  external_identifiers jsonb not null default '{}'::jsonb,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
