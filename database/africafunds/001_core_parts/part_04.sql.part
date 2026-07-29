@@ -1,0 +1,200 @@
+  valuation_date date,
+  date_from date,
+  date_to date,
+  status text not null default 'PENDING',
+  started_at timestamptz,
+  completed_at timestamptz,
+  input_snapshot jsonb not null default '{}'::jsonb,
+  output_metrics jsonb not null default '{}'::jsonb,
+  error_message text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists af_ops.job_errors (
+  id uuid primary key default gen_random_uuid(),
+  pipeline_run_id uuid references af_ops.pipeline_runs(id),
+  calculation_run_id uuid references af_ops.calculation_runs(id),
+  ingestion_job_id uuid references af_ops.ingestion_jobs(id),
+  error_code text,
+  error_message text not null,
+  context jsonb not null default '{}'::jsonb,
+  occurred_at timestamptz not null default now()
+);
+
+create table if not exists af_calc.yield_curves (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  geography_id uuid not null references af_ref.geographies(id),
+  currency_id uuid not null references af_ref.currencies(id),
+  curve_type text not null,
+  methodology_version_id uuid references af_method.methodology_versions(id),
+  status text not null default 'ACTIVE',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists af_calc.yield_curve_points (
+  id uuid primary key default gen_random_uuid(),
+  yield_curve_id uuid not null references af_calc.yield_curves(id) on delete cascade,
+  observation_date date not null,
+  tenor_days integer not null,
+  tenor_label text,
+  rate_value numeric(18,10) not null,
+  point_type text not null check (point_type in ('OBSERVED','INTERPOLATED','EXTRAPOLATED','MODELLED')),
+  source_rate_observation_id uuid references af_market.official_rate_observations(id),
+  source_instrument_observation_id uuid references af_market.instrument_market_observations(id),
+  calculation_run_id uuid references af_ops.calculation_runs(id),
+  quality_status text not null default 'PENDING',
+  created_at timestamptz not null default now(),
+  unique(yield_curve_id, observation_date, tenor_days)
+);
+create index if not exists idx_yield_curve_points_date on af_calc.yield_curve_points(observation_date);
+
+create table if not exists af_calc.index_definitions (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  index_type text not null check (index_type in ('OFFICIAL_MIRROR','OFFICIAL_COMPOSITE','MARKET_INDEX','CATEGORY_INDEX','REAL_CATEGORY_INDEX','PLATFORM_BENCHMARK')),
+  asset_class_id uuid not null references af_ref.asset_classes(id),
+  category_id uuid references af_ref.category_nodes(id),
+  geography_id uuid not null references af_ref.geographies(id),
+  currency_id uuid not null references af_ref.currencies(id),
+  geography_level text not null check (geography_level in ('NATIONAL','ZONE','REGIONAL','AFRICA')),
+  base_date date not null,
+  base_value numeric(28,10) not null default 1000,
+  methodology_version_id uuid references af_method.methodology_versions(id),
+  parent_index_id uuid references af_calc.index_definitions(id),
+  status text not null default 'DRAFT',
+  is_published boolean not null default false,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_index_definitions_category on af_calc.index_definitions(category_id, index_type, currency_id);
+
+create table if not exists af_calc.index_components (
+  id uuid primary key default gen_random_uuid(),
+  index_definition_id uuid not null references af_calc.index_definitions(id) on delete cascade,
+  component_type text not null check (component_type in ('OFFICIAL_INDEX','CALCULATED_INDEX','FUND_CATEGORY','RATE_SERIES','INSTRUMENT','INFLATION_SERIES')),
+  official_index_id uuid references af_market.official_indices(id),
+  component_index_id uuid references af_calc.index_definitions(id),
+  category_id uuid references af_ref.category_nodes(id),
+  rate_series_id uuid references af_market.official_rate_series(id),
+  instrument_id uuid references af_market.instruments(id),
+  geography_id uuid references af_ref.geographies(id),
+  static_weight numeric(18,12),
+  valid_from date,
+  valid_to date,
+  parameters jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  check (valid_to is null or valid_from is null or valid_to >= valid_from)
+);
+create index if not exists idx_index_components_index on af_calc.index_components(index_definition_id, valid_from, valid_to);
+
+create table if not exists af_calc.index_daily_values (
+  id uuid primary key default gen_random_uuid(),
+  index_definition_id uuid not null references af_calc.index_definitions(id) on delete cascade,
+  valuation_date date not null,
+  level numeric(32,12) not null,
+  daily_return numeric(24,16),
+  currency_id uuid not null references af_ref.currencies(id),
+  constituent_count integer not null default 0,
+  eligible_count integer not null default 0,
+  excluded_count integer not null default 0,
+  coverage_ratio numeric(18,12),
+  aum_coverage_ratio numeric(18,12),
+  quality_score numeric(8,6),
+  calculation_run_id uuid references af_ops.calculation_runs(id),
+  methodology_version_id uuid references af_method.methodology_versions(id),
+  is_current boolean not null default true,
+  revision_number integer not null default 1,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  unique(index_definition_id, valuation_date, revision_number)
+);
+create unique index if not exists uq_index_daily_values_current on af_calc.index_daily_values(index_definition_id, valuation_date) where is_current;
+create index if not exists idx_index_daily_values_date on af_calc.index_daily_values(valuation_date);
+
+create table if not exists af_calc.index_constituents_daily (
+  id uuid primary key default gen_random_uuid(),
+  index_definition_id uuid not null references af_calc.index_definitions(id) on delete cascade,
+  valuation_date date not null,
+  component_type text not null,
+  fund_id uuid references af_fund.funds(id),
+  share_class_id uuid references af_fund.share_classes(id),
+  official_index_id uuid references af_market.official_indices(id),
+  component_index_id uuid references af_calc.index_definitions(id),
+  instrument_id uuid references af_market.instruments(id),
+  geography_id uuid references af_ref.geographies(id),
+  weight numeric(18,12) not null,
+  component_return numeric(24,16),
+  contribution numeric(24,16),
+  weighting_basis_value numeric(32,10),
+  eligibility_status text not null default 'INCLUDED',
+  exclusion_reason text,
+  calculation_run_id uuid references af_ops.calculation_runs(id),
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_index_constituents_daily_idx_date on af_calc.index_constituents_daily(index_definition_id, valuation_date);
+
+create table if not exists af_calc.category_daily_calculations (
+  id uuid primary key default gen_random_uuid(),
+  category_id uuid not null references af_ref.category_nodes(id),
+  valuation_date date not null,
+  currency_id uuid not null references af_ref.currencies(id),
+  total_active_funds integer not null default 0,
+  eligible_funds integer not null default 0,
+  funds_with_nav integer not null default 0,
+  funds_used integer not null default 0,
+  excluded_funds integer not null default 0,
+  stale_funds integer not null default 0,
+  unique_portfolios integer not null default 0,
+  share_classes_observed integer not null default 0,
+  total_aum numeric(32,8),
+  covered_aum numeric(32,8),
+  coverage_ratio numeric(18,12),
+  aum_coverage_ratio numeric(18,12),
+  category_return numeric(24,16),
+  quality_score numeric(8,6),
+  calculation_run_id uuid references af_ops.calculation_runs(id),
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  unique(category_id, valuation_date, currency_id)
+);
+
+create table if not exists af_calc.category_daily_weights (
+  id uuid primary key default gen_random_uuid(),
+  parent_category_id uuid not null references af_ref.category_nodes(id),
+  child_category_id uuid not null references af_ref.category_nodes(id),
+  valuation_date date not null,
+  currency_id uuid not null references af_ref.currencies(id),
+  weight numeric(18,12) not null,
+  weighting_basis text not null,
+  weighting_basis_value numeric(32,10),
+  cap_applied boolean not null default false,
+  calculation_run_id uuid references af_ops.calculation_runs(id),
+  quality_score numeric(8,6),
+  created_at timestamptz not null default now(),
+  unique(parent_category_id, child_category_id, valuation_date, currency_id)
+);
+
+create table if not exists af_calc.instrument_daily_valuations (
+  id uuid primary key default gen_random_uuid(),
+  instrument_id uuid not null references af_market.instruments(id) on delete cascade,
+  valuation_date date not null,
+  valuation_mode text not null check (valuation_mode in ('OBSERVED_PRICE','MODEL_PRICED','CONSTANT_MATURITY_PROXY')),
+  clean_price numeric(24,10),
+  dirty_price numeric(24,10),
+  accrued_interest numeric(24,10),
+  total_return numeric(24,16),
+  yield_to_maturity numeric(18,10),
+  residual_maturity_days integer,
+  yield_curve_id uuid references af_calc.yield_curves(id),
+  calculation_run_id uuid references af_ops.calculation_runs(id),
+  quality_status text not null default 'PENDING',
+  created_at timestamptz not null default now(),
+  unique(instrument_id, valuation_date)
+);
+
+create table if not exists af_calc.instrument_bucket_memberships (
+  id uuid primary key default gen_random_uuid(),
