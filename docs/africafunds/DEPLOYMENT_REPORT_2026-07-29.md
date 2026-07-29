@@ -1,19 +1,26 @@
 # AfricaFunds — rapport de déploiement du socle data
 
 **Date :** 29 juillet 2026  
-**Cible fonctionnelle :** `https://funds.chainsolutions.fr/`  
+**Serveur de développement :** S1  
+**API cible :** `https://apiv3.liquidity.wealthtechinnovations.com`  
+**Front cible :** `https://liquidity.wealthtechinnovations.com`  
 **Cible technique actuelle :** Supabase PostgreSQL 17  
 **Projet de travail :** `ogpuidfkkqqnnvvkrouz`  
 **Statut :** socle installé sur un environnement de travail isolé, historiques externes non encore chargés
 
 ## Règle d’isolation
 
-Tous les développements, migrations, collecteurs, calculs, backfills et tests doivent être exécutés sur l’environnement isolé `funds.chainsolutions.fr`.
+Tous les développements, migrations, collecteurs, calculs, backfills et tests doivent être exécutés sur le serveur S1 :
+
+```text
+API   apiv3.liquidity.wealthtechinnovations.com
+Front liquidity.wealthtechinnovations.com
+```
 
 L’environnement AfricaFunds existant ne doit pas être modifié directement. Une promotion ultérieure ne sera possible qu’après :
 
 1. inventaire et sauvegarde ;
-2. migrations réussies sur l’environnement isolé ;
+2. migrations réussies sur S1 ;
 3. tests de non-régression ;
 4. réconciliation des données et indices ;
 5. tests de charge et de sécurité ;
@@ -29,6 +36,16 @@ Les ressources suivantes doivent être séparées de la production :
 - variables d’environnement et secrets ;
 - journaux et alertes ;
 - DNS, reverse proxy et conteneurs.
+
+Variables de garde minimales :
+
+```env
+APP_ENV=s1_development
+FRONTEND_URL=https://liquidity.wealthtechinnovations.com
+API_BASE_URL=https://apiv3.liquidity.wealthtechinnovations.com
+SITE_BASE_URL=https://liquidity.wealthtechinnovations.com
+AFRICAFUNDS_PRODUCTION_WRITE_ENABLED=false
+```
 
 ## Résultat vérifié
 
@@ -121,21 +138,22 @@ Fonds → sous-fonds → classe de parts
 - aucune clé API ni secret dans les migrations ;
 - aucune modification des tables métier préexistantes, la base en étant dépourvue au moment de l'audit ;
 - déploiement futur interdit sur AfricaFunds production sans validation explicite ;
-- variable de garde recommandée : `AFRICAFUNDS_PRODUCTION_WRITE_ENABLED=false`.
+- variable de garde : `AFRICAFUNDS_PRODUCTION_WRITE_ENABLED=false` ;
+- le front S1 ne doit appeler que `apiv3.liquidity.wealthtechinnovations.com`.
 
 Une alerte indépendante subsiste sur `public.rls_auto_enable()`, fonction préexistante non modifiée dans ce lot.
 
-## Travaux restant à réaliser sur funds.chainsolutions.fr
+## Travaux restant à réaliser sur S1
 
-1. identifier précisément le projet, les conteneurs, volumes, bases et reverse proxy du sous-domaine ;
+1. identifier précisément les projets, conteneurs, volumes, bases et reverse proxies des deux domaines ;
 2. créer ou confirmer les ressources isolées ;
 3. écrire les crawlers et parseurs par source ;
 4. archiver les fichiers officiels ;
 5. effectuer le backfill des historiques ;
 6. charger les fonds, classes de parts, VL et actifs nets ;
 7. ajouter les moteurs catégorie, réel, benchmark, FX, régional et Afrique ;
-8. exposer les API de lecture et d'administration ;
-9. connecter le front de `funds.chainsolutions.fr` ;
+8. exposer les API sur `apiv3.liquidity.wealthtechinnovations.com` ;
+9. connecter le front `liquidity.wealthtechinnovations.com` ;
 10. créer les tests de non-régression et de réconciliation ;
 11. documenter la procédure de promotion vers AfricaFunds, sans l’exécuter automatiquement.
 
