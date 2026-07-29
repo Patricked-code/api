@@ -2,6 +2,42 @@
 
 Ce répertoire contient le schéma PostgreSQL/Supabase du moteur AfricaFunds.
 
+## Environnement cible obligatoire
+
+Le développement, les migrations, les collecteurs, les backfills, les API et les tests doivent être exécutés sur l’environnement isolé :
+
+```text
+https://funds.chainsolutions.fr/
+```
+
+L’environnement historique ou de production `africafunds` ne doit pas être modifié directement.
+
+Règles obligatoires :
+
+1. aucune migration directe sur la base de production AfricaFunds ;
+2. aucune modification du conteneur, du volume ou du fichier `.env` de production ;
+3. base de données, stockage, Redis, files d’attente et tâches cron séparés pour `funds.chainsolutions.fr` ;
+4. branche Git dédiée et PR en brouillon ;
+5. sauvegarde et inventaire avant toute migration ;
+6. exécution des migrations d’abord sur `funds.chainsolutions.fr` ;
+7. tests de non-régression, réconciliation et performance ;
+8. promotion vers AfricaFunds uniquement après validation humaine explicite.
+
+Variables attendues pour l’environnement isolé :
+
+```text
+APP_ENV=funds_staging
+APP_BASE_URL=https://funds.chainsolutions.fr
+DATABASE_URL=<base séparée>
+REDIS_URL=<instance ou namespace séparé>
+STORAGE_PREFIX=funds-staging/
+QUEUE_PREFIX=funds-staging
+CRON_ENABLED=true
+AFRICAFUNDS_PRODUCTION_WRITE_ENABLED=false
+```
+
+Toute tâche d’écriture doit refuser de démarrer lorsque `AFRICAFUNDS_PRODUCTION_WRITE_ENABLED` n’est pas explicitement autorisé.
+
 ## Préparer la migration cœur
 
 La migration cœur est conservée sans perte dans `001_core_parts/` afin de rester facilement transportable par le connecteur GitHub.
