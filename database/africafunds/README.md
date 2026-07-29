@@ -2,9 +2,23 @@
 
 Ce répertoire contient le schéma PostgreSQL/Supabase du moteur AfricaFunds.
 
+## Préparer la migration cœur
+
+La migration cœur est conservée sans perte dans `001_core_parts/` afin de rester facilement transportable par le connecteur GitHub.
+
+```bash
+bash database/africafunds/assemble_core_migration.sh
+```
+
+Le fichier reconstruit doit avoir le SHA-256 :
+
+```text
+e00154738ced3004e8e034a679570d281886111aea65a2b6832b083bf5f3cf0e
+```
+
 ## Ordre d'application
 
-1. `001_africafunds_core.sql`
+1. `001_africafunds_core.sql`, après assemblage
 2. `002_africafunds_seed_morocco_uemoa.sql`
 3. `003_africafunds_calculation_helpers.sql`
 4. `004_africafunds_money_market_engine.sql`
