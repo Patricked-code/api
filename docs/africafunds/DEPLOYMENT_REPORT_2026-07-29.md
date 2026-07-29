@@ -1,9 +1,34 @@
 # AfricaFunds — rapport de déploiement du socle data
 
 **Date :** 29 juillet 2026  
-**Cible :** Supabase PostgreSQL 17  
-**Projet :** `ogpuidfkkqqnnvvkrouz`  
-**Statut :** socle installé, historiques externes non encore chargés
+**Cible fonctionnelle :** `https://funds.chainsolutions.fr/`  
+**Cible technique actuelle :** Supabase PostgreSQL 17  
+**Projet de travail :** `ogpuidfkkqqnnvvkrouz`  
+**Statut :** socle installé sur un environnement de travail isolé, historiques externes non encore chargés
+
+## Règle d’isolation
+
+Tous les développements, migrations, collecteurs, calculs, backfills et tests doivent être exécutés sur l’environnement isolé `funds.chainsolutions.fr`.
+
+L’environnement AfricaFunds existant ne doit pas être modifié directement. Une promotion ultérieure ne sera possible qu’après :
+
+1. inventaire et sauvegarde ;
+2. migrations réussies sur l’environnement isolé ;
+3. tests de non-régression ;
+4. réconciliation des données et indices ;
+5. tests de charge et de sécurité ;
+6. validation humaine explicite ;
+7. plan de retour arrière documenté.
+
+Les ressources suivantes doivent être séparées de la production :
+
+- base PostgreSQL/Supabase ;
+- stockage de fichiers sources ;
+- Redis et files d’attente ;
+- tâches planifiées et verrous de jobs ;
+- variables d’environnement et secrets ;
+- journaux et alertes ;
+- DNS, reverse proxy et conteneurs.
 
 ## Résultat vérifié
 
@@ -94,20 +119,25 @@ Fonds → sous-fonds → classe de parts
 - `search_path` fixé sur les fonctions AfricaFunds ;
 - moteur monétaire non accessible à `anon` et `authenticated` ;
 - aucune clé API ni secret dans les migrations ;
-- aucune modification des tables métier préexistantes, la base en étant dépourvue au moment de l'audit.
+- aucune modification des tables métier préexistantes, la base en étant dépourvue au moment de l'audit ;
+- déploiement futur interdit sur AfricaFunds production sans validation explicite ;
+- variable de garde recommandée : `AFRICAFUNDS_PRODUCTION_WRITE_ENABLED=false`.
 
 Une alerte indépendante subsiste sur `public.rls_auto_enable()`, fonction préexistante non modifiée dans ce lot.
 
-## Travaux restant à réaliser
+## Travaux restant à réaliser sur funds.chainsolutions.fr
 
-1. écrire les crawlers et parseurs par source ;
-2. archiver les fichiers officiels ;
-3. effectuer le backfill des historiques ;
-4. charger les fonds, classes de parts, VL et actifs nets ;
-5. ajouter les moteurs catégorie, réel, benchmark, FX, régional et Afrique ;
-6. exposer les API de lecture et d'administration ;
-7. connecter le front ;
-8. créer les tests de non-régression et de réconciliation.
+1. identifier précisément le projet, les conteneurs, volumes, bases et reverse proxy du sous-domaine ;
+2. créer ou confirmer les ressources isolées ;
+3. écrire les crawlers et parseurs par source ;
+4. archiver les fichiers officiels ;
+5. effectuer le backfill des historiques ;
+6. charger les fonds, classes de parts, VL et actifs nets ;
+7. ajouter les moteurs catégorie, réel, benchmark, FX, régional et Afrique ;
+8. exposer les API de lecture et d'administration ;
+9. connecter le front de `funds.chainsolutions.fr` ;
+10. créer les tests de non-régression et de réconciliation ;
+11. documenter la procédure de promotion vers AfricaFunds, sans l’exécuter automatiquement.
 
 ## Critère de vérité
 
