@@ -2,41 +2,50 @@
 
 Ce répertoire contient le schéma PostgreSQL/Supabase du moteur AfricaFunds.
 
-## Environnement cible obligatoire
+## Environnement obligatoire : S1
 
-Le développement, les migrations, les collecteurs, les backfills, les API et les tests doivent être exécutés sur l’environnement isolé :
+Tous les développements, migrations, collecteurs, backfills, calculs, API et tests doivent être exécutés sur le serveur **S1** avec les domaines suivants :
 
 ```text
-https://funds.chainsolutions.fr/
+API   https://apiv3.liquidity.wealthtechinnovations.com
+Front https://liquidity.wealthtechinnovations.com
 ```
 
-L’environnement historique ou de production `africafunds` ne doit pas être modifié directement.
+L’environnement historique ou de production AfricaFunds ne doit pas être modifié directement.
 
 Règles obligatoires :
 
 1. aucune migration directe sur la base de production AfricaFunds ;
-2. aucune modification du conteneur, du volume ou du fichier `.env` de production ;
-3. base de données, stockage, Redis, files d’attente et tâches cron séparés pour `funds.chainsolutions.fr` ;
+2. aucune modification de ses conteneurs, volumes ou fichiers `.env` ;
+3. base, stockage, Redis, files d’attente et tâches cron séparés sur S1 ;
 4. branche Git dédiée et PR en brouillon ;
-5. sauvegarde et inventaire avant toute migration ;
-6. exécution des migrations d’abord sur `funds.chainsolutions.fr` ;
-7. tests de non-régression, réconciliation et performance ;
+5. sauvegarde et inventaire avant toute promotion ;
+6. exécution des migrations d’abord sur S1 ;
+7. tests de non-régression, réconciliation, sécurité et performance ;
 8. promotion vers AfricaFunds uniquement après validation humaine explicite.
 
-Variables attendues pour l’environnement isolé :
+Variables attendues :
 
-```text
-APP_ENV=funds_staging
-APP_BASE_URL=https://funds.chainsolutions.fr
-DATABASE_URL=<base séparée>
-REDIS_URL=<instance ou namespace séparé>
-STORAGE_PREFIX=funds-staging/
-QUEUE_PREFIX=funds-staging
+```env
+APP_ENV=s1_development
+FRONTEND_URL=https://liquidity.wealthtechinnovations.com
+API_BASE_URL=https://apiv3.liquidity.wealthtechinnovations.com
+SITE_BASE_URL=https://liquidity.wealthtechinnovations.com
+DATABASE_URL=<base S1 séparée>
+REDIS_URL=<instance ou namespace S1 séparé>
+STORAGE_PREFIX=s1-liquidity/
+QUEUE_PREFIX=s1-liquidity
 CRON_ENABLED=true
 AFRICAFUNDS_PRODUCTION_WRITE_ENABLED=false
 ```
 
-Toute tâche d’écriture doit refuser de démarrer lorsque `AFRICAFUNDS_PRODUCTION_WRITE_ENABLED` n’est pas explicitement autorisé.
+Toute tâche d’écriture doit refuser de démarrer si elle détecte une cible AfricaFunds production ou si `AFRICAFUNDS_PRODUCTION_WRITE_ENABLED` n’est pas explicitement autorisé.
+
+Les garde-fous complets sont documentés dans :
+
+```text
+docs/africafunds/ENVIRONMENT_GUARDRAILS.md
+```
 
 ## Préparer la migration cœur
 
@@ -89,6 +98,8 @@ La fonction ne produit des niveaux que lorsque des observations officielles exis
 
 Les fonctions de calcul ne sont pas exécutables par `anon`. Le moteur d'indice monétaire reste réservé au rôle propriétaire/service.
 
+Aucun secret réel ne doit être versionné.
+
 ## Limite actuelle
 
-Les collecteurs HTTP, parseurs par source et historiques officiels ne sont pas inclus dans ce lot. Le schéma est prêt à les recevoir.
+Les collecteurs HTTP, parseurs par source et historiques officiels ne sont pas inclus dans ce lot. Le schéma est prêt à les recevoir exclusivement sur S1.
