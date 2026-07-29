@@ -1,0 +1,200 @@
+  source_name text not null,
+  data_domain text not null,
+  url text not null,
+  access_method text not null default 'HTTP',
+  format_hint text,
+  frequency text,
+  parser_key text,
+  is_active boolean not null default true,
+  priority smallint not null default 100,
+  last_checked_at timestamptz,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_source_endpoints_domain_geo on af_source.source_endpoints(data_domain, geography_id);
+
+create table if not exists af_source.source_documents (
+  id uuid primary key default gen_random_uuid(),
+  source_endpoint_id uuid references af_source.source_endpoints(id),
+  organization_id uuid references af_org.organizations(id),
+  geography_id uuid references af_ref.geographies(id),
+  document_type text,
+  title text,
+  document_date date,
+  publication_date date,
+  effective_date date,
+  source_url text,
+  language text,
+  version text,
+  checksum_sha256 text,
+  mime_type text,
+  storage_path text,
+  status text not null default 'DISCOVERED',
+  metadata jsonb not null default '{}'::jsonb,
+  discovered_at timestamptz not null default now(),
+  downloaded_at timestamptz,
+  parsed_at timestamptz
+);
+create index if not exists idx_source_documents_endpoint_date on af_source.source_documents(source_endpoint_id, document_date);
+
+create table if not exists af_source.source_files (
+  id uuid primary key default gen_random_uuid(),
+  source_document_id uuid not null references af_source.source_documents(id) on delete cascade,
+  file_name text not null,
+  file_extension text,
+  mime_type text,
+  byte_size bigint,
+  checksum_sha256 text,
+  storage_path text,
+  workbook_sheet_names text[],
+  parse_status text not null default 'PENDING',
+  error_message text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists af_source.source_locations (
+  id uuid primary key default gen_random_uuid(),
+  source_file_id uuid references af_source.source_files(id) on delete cascade,
+  source_document_id uuid references af_source.source_documents(id) on delete cascade,
+  location_type text not null check (location_type in ('URL','PAGE','SHEET','CELL','RANGE','ROW','JSON_PATH','HTML_SELECTOR','API_FIELD')),
+  page_number integer,
+  sheet_name text,
+  cell_reference text,
+  range_reference text,
+  row_number integer,
+  json_path text,
+  html_selector text,
+  api_field text,
+  context_text text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists af_source.source_observations (
+  id uuid primary key default gen_random_uuid(),
+  source_endpoint_id uuid references af_source.source_endpoints(id),
+  source_document_id uuid references af_source.source_documents(id),
+  source_location_id uuid references af_source.source_locations(id),
+  observation_type text not null,
+  economic_date date,
+  publication_date date,
+  raw_label text,
+  raw_value text,
+  normalized_value numeric(32,12),
+  normalized_text text,
+  unit text,
+  currency_code text,
+  maturity_label text,
+  maturity_days integer,
+  entity_label text,
+  parsing_notes text,
+  verification_status text not null default 'UNVERIFIED',
+  ingested_at timestamptz not null default now(),
+  metadata jsonb not null default '{}'::jsonb
+);
+create index if not exists idx_source_observations_type_date on af_source.source_observations(observation_type, economic_date);
+
+create table if not exists af_market.official_indices (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  provider_organization_id uuid not null references af_org.organizations(id),
+  geography_id uuid not null references af_ref.geographies(id),
+  asset_class_id uuid not null references af_ref.asset_classes(id),
+  currency_id uuid not null references af_ref.currencies(id),
+  return_type text not null default 'PRICE' check (return_type in ('PRICE','GROSS_TOTAL_RETURN','NET_TOTAL_RETURN','COMPOSITE','OTHER')),
+  weighting_method text,
+  base_date date,
+  base_value numeric(28,10),
+  status text not null default 'ACTIVE',
+  methodology_url text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists af_market.official_index_observations (
+  id uuid primary key default gen_random_uuid(),
+  official_index_id uuid not null references af_market.official_indices(id) on delete cascade,
+  observation_date date not null,
+  level numeric(32,12) not null,
+  currency_id uuid not null references af_ref.currencies(id),
+  publication_date date,
+  source_observation_id uuid references af_source.source_observations(id),
+  revision_number integer not null default 1,
+  is_current boolean not null default true,
+  quality_status text not null default 'PENDING',
+  created_at timestamptz not null default now(),
+  unique(official_index_id, observation_date, revision_number)
+);
+create unique index if not exists uq_official_index_obs_current on af_market.official_index_observations(official_index_id, observation_date) where is_current;
+create index if not exists idx_official_index_obs_date on af_market.official_index_observations(observation_date);
+
+create table if not exists af_market.official_rate_series (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  provider_organization_id uuid not null references af_org.organizations(id),
+  geography_id uuid not null references af_ref.geographies(id),
+  currency_id uuid not null references af_ref.currencies(id),
+  rate_type text not null,
+  tenor_label text,
+  tenor_days integer,
+  day_count_convention text,
+  compounding_convention text,
+  unit text not null default 'PERCENT',
+  frequency text,
+  is_reference_index boolean not null default false,
+  status text not null default 'ACTIVE',
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_rate_series_geo_tenor on af_market.official_rate_series(geography_id, tenor_days);
+
+create table if not exists af_market.official_rate_observations (
+  id uuid primary key default gen_random_uuid(),
+  rate_series_id uuid not null references af_market.official_rate_series(id) on delete cascade,
+  observation_date date not null,
+  rate_value numeric(18,10) not null,
+  publication_date date,
+  maturity_date date,
+  source_observation_id uuid references af_source.source_observations(id),
+  revision_number integer not null default 1,
+  is_current boolean not null default true,
+  quality_status text not null default 'PENDING',
+  created_at timestamptz not null default now(),
+  unique(rate_series_id, observation_date, revision_number)
+);
+create unique index if not exists uq_rate_obs_current on af_market.official_rate_observations(rate_series_id, observation_date) where is_current;
+create index if not exists idx_rate_obs_date on af_market.official_rate_observations(observation_date);
+
+create table if not exists af_market.fx_observations (
+  id uuid primary key default gen_random_uuid(),
+  base_currency_id uuid not null references af_ref.currencies(id),
+  quote_currency_id uuid not null references af_ref.currencies(id),
+  observation_date date not null,
+  rate numeric(32,14) not null check (rate > 0),
+  rate_type text not null default 'REFERENCE',
+  provider_organization_id uuid references af_org.organizations(id),
+  source_observation_id uuid references af_source.source_observations(id),
+  is_triangulated boolean not null default false,
+  stale_days integer not null default 0,
+  revision_number integer not null default 1,
+  is_current boolean not null default true,
+  quality_status text not null default 'PENDING',
+  created_at timestamptz not null default now(),
+  unique(base_currency_id, quote_currency_id, observation_date, revision_number),
+  check (base_currency_id <> quote_currency_id)
+);
+create unique index if not exists uq_fx_obs_current on af_market.fx_observations(base_currency_id, quote_currency_id, observation_date) where is_current;
+
+create table if not exists af_market.inflation_observations (
+  id uuid primary key default gen_random_uuid(),
+  geography_id uuid not null references af_ref.geographies(id),
+  observation_date date not null,
+  index_level numeric(24,10),
+  yoy_rate numeric(18,10),
+  mom_rate numeric(18,10),
+  provider_organization_id uuid references af_org.organizations(id),
+  source_observation_id uuid references af_source.source_observations(id),
